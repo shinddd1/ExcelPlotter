@@ -8,13 +8,13 @@ Excel Plotter (SciencePlots) - 메인 실행 파일
 import tkinter as tk
 from main_app import ExcelPlotterApp
 
-
 def main():
-    """메인 함수"""
+    """메인 함수 - 기존 버전"""
     root = tk.Tk()
     app = ExcelPlotterApp(root)
     root.mainloop()
 
 
 if __name__ == '__main__':
+    print("기존 버전으로 실행합니다...")
     main()

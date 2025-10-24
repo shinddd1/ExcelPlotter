@@ -15,6 +15,7 @@ warnings.filterwarnings('ignore')
 
 from excel_integration import ExcelIntegration
 from plot_settings import PlotSettingsWindow
+from image_saver import ImageSaver
 
 # SciencePlots
 try:
@@ -36,12 +37,16 @@ class ExcelPlotterApp:
         self.figure = None
         self.ax = None
         self.data_tree = None
-        self.auto_refresh_enabled = True
         self.refresh_timer = None
         self.editing_cell = None
         self.edit_entry = None
         self.excel_integration = ExcelIntegration()
         self.auto_refresh_job = None
+        
+        # 이미지 저장 모듈 초기화
+        import os
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        self.image_saver = ImageSaver(app_dir)
         
         # 기본 축 타입 설정 (플롯 설정 창에서 결정됨)
         self.axis_type_var = tk.StringVar(value='numeric')
@@ -75,7 +80,7 @@ class ExcelPlotterApp:
                 plt.rcParams['font.family'] = 'DejaVu Sans'
                 
             # 폰트 크기 설정
-            plt.rcParams['font.size'] = 10
+            plt.rcParams['font.size'] = 12
             plt.rcParams['axes.unicode_minus'] = False  # 마이너스 기호 깨짐 방지
             
         except Exception as e:
@@ -179,8 +184,7 @@ class ExcelPlotterApp:
 
     def _schedule_auto_refresh(self) -> None:
         """자동 새로고침을 스케줄링 (디바운싱)"""
-        if not self.auto_refresh_enabled:
-            return
+        # 자동 새로고침이 항상 활성화됨 (체크박스 제거로 인해)
             
         # 기존 타이머 취소
         if self.refresh_timer:
@@ -269,16 +273,10 @@ class ExcelPlotterApp:
         self.style_no_latex = tk.BooleanVar(value=True)
         self.style_bright = tk.BooleanVar(value=False)
 
-        ttk.Checkbutton(style_frame, text='science', variable=self.style_science, 
-                        command=self._schedule_auto_refresh).pack(side=tk.LEFT)
-        ttk.Checkbutton(style_frame, text='ieee', variable=self.style_ieee, 
-                        command=self._schedule_auto_refresh).pack(side=tk.LEFT)
-        ttk.Checkbutton(style_frame, text='notebook', variable=self.style_notebook, 
-                        command=self._schedule_auto_refresh).pack(side=tk.LEFT)
-        ttk.Checkbutton(style_frame, text='no-latex', variable=self.style_no_latex, 
-                        command=self._schedule_auto_refresh).pack(side=tk.LEFT)
-        ttk.Checkbutton(style_frame, text='bright', variable=self.style_bright, 
-                        command=self._schedule_auto_refresh).pack(side=tk.LEFT)
+        # 과학 스타일 및 no-latex를 기본값으로 적용
+        self.style_science.set(True)
+        self.style_no_latex.set(True)
+        # 스타일 체크박스(Science, No-latex)는 더이상 표시하지 않음
 
         # 줌 컨트롤 섹션
         zoom_frame = ttk.LabelFrame(left_panel, text='줌 컨트롤', padding=8)
@@ -314,13 +312,7 @@ class ExcelPlotterApp:
         plot_controls = ttk.Frame(left_panel)
         plot_controls.pack(fill=tk.X)
 
-        ttk.Button(plot_controls, text='플롯 그리기', command=self.on_plot).pack(side=tk.LEFT)
-        ttk.Button(plot_controls, text='이미지 저장', command=self.on_save).pack(side=tk.LEFT, padx=4)
-        
-        # 자동 새로고침 옵션
-        self.auto_refresh_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(plot_controls, text='자동 새로고침', variable=self.auto_refresh_var, 
-                        command=self._toggle_auto_refresh).pack(side=tk.RIGHT)
+        ttk.Button(plot_controls, text='이미지 저장', command=self.on_save).pack(side=tk.LEFT)
 
         # === 오른쪽 패널 구성 ===
         # 플롯 섹션
@@ -341,7 +333,7 @@ class ExcelPlotterApp:
 
         # 초기 플롯
         self.ax.text(0.5, 0.5, '데이터를 로드하고 플롯을 그려주세요', 
-                    ha='center', va='center', transform=self.ax.transAxes, fontsize=12)
+                    ha='center', va='center', transform=self.ax.transAxes, fontsize=14)
         self.ax.set_title('Excel Plotter')
         self.plot_canvas.draw()
 
@@ -753,7 +745,7 @@ class ExcelPlotterApp:
             else:
                 # 기본 X축 레이블 설정 - 선택된 축 타입에 따라 처리
                 if axis_type == 'datetime':
-                    self.ax.set_xlabel(f'{x_col} (시간)', fontsize=settings['xlabel_fontsize'])
+                    self.ax.set_xlabel(f'{x_col}', fontsize=settings['xlabel_fontsize'])
                     # 시간 축 포맷팅
                     import matplotlib.dates as mdates
                     self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
@@ -852,12 +844,6 @@ class ExcelPlotterApp:
         self._schedule_auto_refresh()
     
 
-    def _toggle_auto_refresh(self) -> None:
-        """자동 새로고침 토글"""
-        self.auto_refresh_enabled = self.auto_refresh_var.get()
-        if not self.auto_refresh_enabled and self.refresh_timer:
-            self.root.after_cancel(self.refresh_timer)
-            self.refresh_timer = None
 
     def _collect_styles(self) -> list[str]:
         styles: list[str] = []
@@ -974,7 +960,7 @@ class ExcelPlotterApp:
             # 선택된 축 타입에 따른 X축 처리
             axis_type = self.axis_type_var.get()
             if axis_type == 'datetime':
-                self.ax.set_xlabel(f'{x_col} (시간)', fontsize=12)
+                self.ax.set_xlabel(f'{x_col}', fontsize=16)
                 # 시간 축 포맷팅
                 import matplotlib.dates as mdates
                 self.ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d %H:%M'))
@@ -982,9 +968,9 @@ class ExcelPlotterApp:
                 # X축 레이블 회전
                 plt.setp(self.ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
             else:
-                self.ax.set_xlabel(x_col, fontsize=12)
+                self.ax.set_xlabel(x_col, fontsize=16)
             
-            self.ax.set_ylabel(', '.join(y_cols), fontsize=12)
+            self.ax.set_ylabel(', '.join(y_cols), fontsize=16)
             self.ax.set_title(f'{sheet} - {x_col} vs {", ".join(y_cols)}', fontsize=14)
             self.ax.legend()
             self.ax.grid(True, alpha=0.3)
@@ -999,25 +985,25 @@ class ExcelPlotterApp:
             messagebox.showerror('플롯 오류', str(exc))
 
     def on_save(self) -> None:
+        """이미지 저장 - Plot Image 폴더에 자동으로 저장"""
         try:
             # 현재 플롯이 있는지 확인
             if not hasattr(self.ax, 'lines') or not self.ax.lines:
                 messagebox.showwarning('경고', '먼저 플롯을 그려주세요.')
                 return
             
-            out_path = filedialog.asksaveasfilename(
-                defaultextension='.png', 
-                filetypes=[('PNG', '*.png'), ('SVG', '*.svg'), ('PDF', '*.pdf')]
-            )
-            if not out_path:
-                return
+            # 현재 플롯의 제목 가져오기
+            title = self.ax.get_title() if self.ax.get_title() else "Plot"
             
-            # 현재 플롯을 파일로 저장
-            self.figure.savefig(out_path, dpi=300, bbox_inches='tight')
-            messagebox.showinfo('저장 완료', f'그림을 저장했습니다.\n{out_path}')
+            # 이미지 저장 모듈을 사용하여 저장
+            success = self.image_saver.save_plot_image(self.figure, title)
+            
+            if success:
+                # 저장 성공 - 팝업 없이 조용히 완료
+                pass
             
         except Exception as exc:
-            messagebox.showerror('저장 오류', str(exc))
+            messagebox.showerror('저장 오류', f'이미지 저장 중 오류가 발생했습니다: {exc}')
 
     def _toggle_zoom_mode(self) -> None:
         """줌 모드 토글"""

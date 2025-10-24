@@ -31,7 +31,7 @@ class PlotSettingsWindow:
         # 새 창 생성
         self.window = tk.Toplevel(parent)
         self.window.title('그래프 설정')
-        self.window.geometry('600x800')
+        self.window.geometry('600x1100')
         self.window.transient(parent)
         self.window.grab_set()
         
@@ -41,33 +41,128 @@ class PlotSettingsWindow:
         self._build_ui()
     
     def _schedule_update(self):
-        """디바운싱을 사용하여 그래프 업데이트를 스케줄링"""
-        if self.update_timer:
-            self.window.after_cancel(self.update_timer)
-        
-        self.update_timer = self.window.after(int(self.update_delay * 1000), self._update_plot)
+        """디바운싱을 사용하여 그래프 업데이트를 스케줄링 - 강화된 안전성"""
+        try:
+            # 기존 타이머 취소
+            if self.update_timer:
+                self.window.after_cancel(self.update_timer)
+                self.update_timer = None
+            
+            # 업데이트 중이면 스케줄링 건너뜀
+            if hasattr(self, 'is_updating') and self.is_updating:
+                print("이미 업데이트 중입니다. 스케줄링 건너뜀.")
+                return
+            
+            # 디바운싱 지연 시간 증가 (더 안전하게)
+            delay_ms = int(self.update_delay * 1000) + 100  # 추가 100ms 지연
+            print(f"그래프 업데이트 스케줄링: {delay_ms}ms 후")
+            
+            self.update_timer = self.window.after(delay_ms, self._update_plot)
+            
+        except Exception as e:
+            print(f"업데이트 스케줄링 오류: {e}")
     
     def _update_plot(self):
-        """실제 그래프 업데이트 수행"""
+        """실제 그래프 업데이트 수행 - 타임아웃 및 안전한 처리"""
         try:
             if self.is_updating:
+                print("이미 업데이트 중입니다. 건너뜀.")
                 return
             
             self.is_updating = True
-            settings = self._collect_settings()
+            print("그래프 업데이트 시작...")
             
-            # 설정 유효성 검사
-            if self._validate_settings(settings):
-                # 메인 앱의 그래프 업데이트
-                self.main_app.apply_plot_settings(settings)
-                print("실시간 그래프 업데이트 완료")
-            else:
-                print("설정 유효성 검사 실패")
+            # 타임아웃 설정 (5초)
+            timeout_timer = self.window.after(5000, self._force_update_timeout)
+            
+            try:
+                settings = self._collect_settings()
+                print(f"설정 수집 완료: {len(settings)} 항목")
+                
+                # 설정 유효성 검사
+                if self._validate_settings(settings):
+                    print("설정 유효성 검사 통과")
+                    
+                    # 메인 앱의 그래프 업데이트 (안전한 처리)
+                    self._safe_apply_plot_settings(settings)
+                    print("실시간 그래프 업데이트 완료")
+                else:
+                    print("설정 유효성 검사 실패")
+                    
+            finally:
+                # 타임아웃 타이머 취소
+                if timeout_timer:
+                    self.window.after_cancel(timeout_timer)
                 
         except Exception as e:
             print(f"실시간 업데이트 오류: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             self.is_updating = False
+            print("그래프 업데이트 플래그 해제")
+    
+    def _force_update_timeout(self):
+        """업데이트 타임아웃 강제 종료"""
+        print("그래프 업데이트 타임아웃! 강제 종료")
+        self.is_updating = False
+    
+    def _safe_apply_plot_settings(self, settings):
+        """안전한 그래프 설정 적용"""
+        try:
+            print("그래프 설정 적용 시작...")
+            
+            # 시간축 데이터 유효성 검사
+            if self._is_timestamp_axis(settings):
+                self._validate_timestamp_data(settings)
+            
+            # 메인 앱의 그래프 업데이트
+            self.main_app.apply_plot_settings(settings)
+            print("그래프 설정 적용 완료")
+            
+        except Exception as e:
+            print(f"그래프 설정 적용 오류: {e}")
+            # 기본 설정으로 fallback
+            self._apply_fallback_settings()
+    
+    def _is_timestamp_axis(self, settings):
+        """시간축인지 확인"""
+        try:
+            axis_type = self.main_app.axis_type_var.get()
+            return axis_type == 'datetime'
+        except:
+            return False
+    
+    def _validate_timestamp_data(self, settings):
+        """시간축 데이터 유효성 검사"""
+        try:
+            xlim_min = settings.get('xlim_min')
+            xlim_max = settings.get('xlim_max')
+            
+            if xlim_min and xlim_max:
+                # 시간 형식 검사
+                import re
+                time_pattern = r'\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}'
+                
+                if not re.match(time_pattern, str(xlim_min)) or not re.match(time_pattern, str(xlim_max)):
+                    print(f"잘못된 시간 형식: {xlim_min}, {xlim_max}")
+                    raise ValueError("잘못된 시간 형식")
+                
+                print(f"시간 형식 검사 통과: {xlim_min} ~ {xlim_max}")
+                
+        except Exception as e:
+            print(f"시간축 데이터 유효성 검사 실패: {e}")
+            raise
+    
+    def _apply_fallback_settings(self):
+        """기본 설정으로 fallback"""
+        try:
+            print("기본 설정으로 fallback 적용")
+            # 기본 설정으로 그래프 업데이트
+            # 여기서는 단순히 현재 그래프를 유지
+            pass
+        except Exception as e:
+            print(f"Fallback 설정 적용 오류: {e}")
     
     def _is_timestamp_column_name(self, column_name: str) -> bool:
         """컬럼 이름이 시간 관련인지 확인"""
@@ -178,12 +273,12 @@ class PlotSettingsWindow:
                     'xlim_max': actual_x_max,
                     'ylim_min': ax.get_ylim()[0],
                     'ylim_max': ax.get_ylim()[1],
-                'x_ticks': 5,  # 나중에 실제 값으로 업데이트됨
-                'y_ticks': 5,  # 나중에 실제 값으로 업데이트됨
-                    'x_tick_fontsize': 10,  # 나중에 실제 값으로 업데이트됨
-                    'y_tick_fontsize': 10,  # 나중에 실제 값으로 업데이트됨
-                'xlabel_fontsize': ax.xaxis.label.get_fontsize() or 12,
-                'ylabel_fontsize': ax.yaxis.label.get_fontsize() or 12,
+                'x_ticks': 1,  # 간격 단위 (기본값: 1)
+                'y_ticks': 1,  # 간격 단위 (기본값: 1)
+                'x_tick_fontsize': 12,  # 나중에 실제 값으로 업데이트됨
+                'y_tick_fontsize': 12,  # 나중에 실제 값으로 업데이트됨
+                'xlabel_fontsize': ax.xaxis.label.get_fontsize() or 16,
+                'ylabel_fontsize': ax.yaxis.label.get_fontsize() or 16,
                 'title_fontsize': ax.title.get_fontsize() or 14,
                 'is_timestamp': is_timestamp,  # Timestamp 여부 추가
                 }
@@ -272,17 +367,17 @@ class PlotSettingsWindow:
                     if x_tick_labels:
                         self.settings['x_tick_fontsize'] = x_tick_labels[0].get_fontsize()
                     else:
-                        self.settings['x_tick_fontsize'] = 10
+                        self.settings['x_tick_fontsize'] = 12
                     
                     # Y축 틱 폰트 크기
                     y_tick_labels = ax.get_yticklabels()
                     if y_tick_labels:
                         self.settings['y_tick_fontsize'] = y_tick_labels[0].get_fontsize()
                     else:
-                        self.settings['y_tick_fontsize'] = 10
+                        self.settings['y_tick_fontsize'] = 12
                 except:
-                    self.settings['x_tick_fontsize'] = 10
-                    self.settings['y_tick_fontsize'] = 10
+                    self.settings['x_tick_fontsize'] = 12
+                    self.settings['y_tick_fontsize'] = 12
         except Exception as e:
             print(f"현재 설정 가져오기 오류: {e}")
             import traceback
@@ -302,12 +397,12 @@ class PlotSettingsWindow:
                 'xlim_max': actual_x_max,
                 'ylim_min': 0,
                 'ylim_max': 10,
-                'x_ticks': 5,
-                'y_ticks': 5,
-                'x_tick_fontsize': 10,
-                'y_tick_fontsize': 10,
-                'xlabel_fontsize': 12,
-                'ylabel_fontsize': 12,
+                'x_ticks': 1,  # 간격 단위 (기본값: 1)
+                'y_ticks': 1,  # 간격 단위 (기본값: 1)
+                'x_tick_fontsize': 12,
+                'y_tick_fontsize': 12,
+                'xlabel_fontsize': 16,
+                'ylabel_fontsize': 16,
                 'title_fontsize': 14,
                 'is_timestamp': False,
             }
@@ -510,7 +605,6 @@ class PlotSettingsWindow:
             
             marker_size_entry = ttk.Entry(row3_frame, textvariable=marker_size_var, width=6)
             marker_size_entry.pack(side=tk.LEFT, padx=2)
-            ttk.Label(row3_frame, text='(1~50)').pack(side=tk.LEFT, padx=2)
             
             # 색상 미리보기 업데이트 함수
             def update_preview(col=y_col):
@@ -586,13 +680,12 @@ class PlotSettingsWindow:
         # Y축 간격 (공통)
         yticks_frame = ttk.Frame(axis_frame)
         yticks_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(yticks_frame, text='Y축 간격 수:').pack(side=tk.LEFT)
+        ttk.Label(yticks_frame, text='Y축 간격 단위:').pack(side=tk.LEFT)
         
         self.y_ticks_var = tk.IntVar(value=self.settings['y_ticks'])
         self.y_ticks_var.trace('w', lambda *args: self._schedule_update())
         yticks_entry = ttk.Entry(yticks_frame, textvariable=self.y_ticks_var, width=8)
         yticks_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(yticks_frame, text='(2~50)').pack(side=tk.LEFT, padx=2)
     
     def _build_numeric_axis_tab(self, parent):
         """숫자 축 탭 구성"""
@@ -630,13 +723,12 @@ class PlotSettingsWindow:
         # X축 간격
         xticks_frame = ttk.Frame(parent)
         xticks_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(xticks_frame, text='X축 간격 수:').pack(side=tk.LEFT)
+        ttk.Label(xticks_frame, text='X축 간격 단위:').pack(side=tk.LEFT)
         
         self.x_ticks_var = tk.IntVar(value=self.settings['x_ticks'])
         self.x_ticks_var.trace('w', lambda *args: self._schedule_update())
         xticks_entry = ttk.Entry(xticks_frame, textvariable=self.x_ticks_var, width=8)
         xticks_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(xticks_frame, text='(2~50)').pack(side=tk.LEFT, padx=2)
         
         # 초기 상태 설정
         self._toggle_x_manual_mode()
@@ -665,17 +757,18 @@ class PlotSettingsWindow:
         
         self.xlim_min_entry = ttk.Entry(xlim_frame, textvariable=self.xlim_min_timestamp_var, width=20)
         self.xlim_min_entry.pack(side=tk.LEFT, padx=2)
-        self.xlim_min_entry.bind('<KeyRelease>', self._on_timestamp_range_modified)
+        # 시간축 포맷팅 비활성화 - 단순한 입력만 받음
+        self.xlim_min_entry.bind('<KeyRelease>', self._on_timestamp_range_modified_simple)
         ttk.Label(xlim_frame, text='~').pack(side=tk.LEFT)
         self.xlim_max_entry = ttk.Entry(xlim_frame, textvariable=self.xlim_max_timestamp_var, width=20)
         self.xlim_max_entry.pack(side=tk.LEFT, padx=2)
-        self.xlim_max_entry.bind('<KeyRelease>', self._on_timestamp_range_modified)
+        self.xlim_max_entry.bind('<KeyRelease>', self._on_timestamp_range_modified_simple)
         
         # X축 시간 자동 버튼
         ttk.Button(xlim_frame, text='자동', command=self._auto_xlim_timestamp).pack(side=tk.LEFT, padx=5)
         
         # 시간 형식 안내
-        format_label = ttk.Label(parent, text='시간 형식: YYYY-MM-DD HH:MM:SS (숫자만 입력하면 자동 포맷팅)', font=('Arial', 9), foreground='gray')
+        format_label = ttk.Label(parent, text='시간 형식: YYYY-MM-DD 시:분:초 (숫자만 입력하면 자동 포맷팅)', font=('Arial', 9), foreground='gray')
         format_label.pack(pady=2)
         
         # X축 간격 설정
@@ -685,13 +778,12 @@ class PlotSettingsWindow:
         # 간격 수 설정
         ticks_count_frame = ttk.Frame(xticks_frame)
         ticks_count_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(ticks_count_frame, text='간격 수:').pack(side=tk.LEFT)
+        ttk.Label(ticks_count_frame, text='간격 단위:').pack(side=tk.LEFT)
         
         self.x_ticks_var = tk.IntVar(value=self.settings['x_ticks'])
         self.x_ticks_var.trace('w', lambda *args: self._schedule_update())
         xticks_entry = ttk.Entry(ticks_count_frame, textvariable=self.x_ticks_var, width=8)
         xticks_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(ticks_count_frame, text='(2~50)').pack(side=tk.LEFT, padx=2)
         
         # 시간 간격 단위 설정
         interval_frame = ttk.Frame(xticks_frame)
@@ -713,17 +805,16 @@ class PlotSettingsWindow:
         self.time_interval_value.trace('w', lambda *args: self._schedule_update())
         interval_value_entry = ttk.Entry(interval_value_frame, textvariable=self.time_interval_value, width=8)
         interval_value_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(interval_value_frame, text='(1~100)').pack(side=tk.LEFT, padx=2)
         
         # 시간 형식 설정
         format_frame = ttk.Frame(xticks_frame)
         format_frame.pack(fill=tk.X, pady=2)
         ttk.Label(format_frame, text='시간 표시 형식:').pack(side=tk.LEFT)
         
-        self.time_format = tk.StringVar(value=self.settings.get('time_format', '%H:%M:%S.%f'))
+        self.time_format = tk.StringVar(value=self.settings.get('time_format', '시:분:초:밀리초'))
         self.time_format.trace('w', lambda *args: self._schedule_update())
         format_combo = ttk.Combobox(format_frame, textvariable=self.time_format, width=15, state='readonly')
-        format_combo['values'] = ['%H:%M:%S.%f', '%H:%M:%S', '%H:%M', '%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M']
+        format_combo['values'] = ['시:분:초:밀리초', '시:분:초', '시:분', '년-월-일 시:분:초', '년-월-일 시:분']
         format_combo.pack(side=tk.LEFT, padx=5)
         
         # 초기 상태 설정
@@ -746,6 +837,9 @@ class PlotSettingsWindow:
         if hasattr(self.main_app, 'axis_type_var'):
             self.main_app.axis_type_var.set(axis_type)
             print(f"메인 앱의 축 타입도 '{axis_type}'로 업데이트됨")
+        
+        # 탭 활성화/비활성화 업데이트
+        self._update_tab_availability()
         
         # 변경된 축 타입에 따라 X축 범위 자동 설정 (입력 필드 초기화)
         self._auto_xlim()
@@ -779,82 +873,128 @@ class PlotSettingsWindow:
         self.main_app._user_modified_x_range = True
         self._save_current_x_range()
         print("사용자가 숫자 축 범위를 수정했습니다.")
+        # 실시간 업데이트 스케줄링
+        self._schedule_update()
         
     def _on_timestamp_range_modified(self, event):
-        """시간 축 범위 수정 감지"""
-        self.main_app._user_modified_x_range = True
-        # 시간 포맷팅도 함께 실행
-        self._format_timestamp_input(event)
-        self._save_current_x_range()
-        print("사용자가 시간 축 범위를 수정했습니다.")
+        """시간 축 범위 수정 감지 - 강화된 디바운싱"""
+        try:
+            # 무한 루프 방지 (더 강력한 체크)
+            if hasattr(self, '_timestamp_processing') and self._timestamp_processing:
+                print("시간축 처리 중입니다. 건너뜀.")
+                return
+                
+            if hasattr(self, '_global_formatting') and self._global_formatting:
+                print("전역 포맷팅 중입니다. 건너뜀.")
+                return
+                
+            self._timestamp_processing = True
+            print("시간축 범위 수정 감지")
+            
+            self.main_app._user_modified_x_range = True
+            
+            # 시간 포맷팅 실행 (별도 처리)
+            try:
+                self._format_timestamp_input(event)
+            except Exception as e:
+                print(f"시간 포맷팅 오류: {e}")
+            
+            # X축 범위 저장
+            try:
+                self._save_current_x_range()
+            except Exception as e:
+                print(f"X축 범위 저장 오류: {e}")
+            
+            print("사용자가 시간 축 범위를 수정했습니다.")
+            
+            # 실시간 업데이트 스케줄링 (디바운싱)
+            self._schedule_update()
+            
+        except Exception as e:
+            print(f"시간축 범위 수정 처리 오류: {e}")
+        finally:
+            # 처리 완료 후 플래그 해제 (지연)
+            self.window.after(200, lambda: self._reset_timestamp_processing())
+    
+    def _reset_timestamp_processing(self):
+        """시간축 처리 플래그 리셋"""
+        try:
+            self._timestamp_processing = False
+            print("시간축 처리 플래그 해제")
+        except:
+            pass
+    
+    def _on_timestamp_range_modified_simple(self, event):
+        """시간축 범위 수정 감지 - 기존 main_app.py와 동일한 단순 처리"""
+        try:
+            print("시간축 범위 수정 감지")
+            self.main_app._user_modified_x_range = True
+            self._save_current_x_range()
+            
+            # 디바운싱된 업데이트
+            self._schedule_update()
+            
+        except Exception as e:
+            print(f"시간축 범위 수정 처리 오류: {e}")
         
     def _save_current_x_range(self):
-        """현재 X축 범위를 저장"""
+        """현재 X축 범위를 저장 - 안전한 처리"""
         try:
             current_sheet = self.main_app.sheet_combo.get()
             x_col = self.main_app.x_combo.get()
             
-            if current_sheet and x_col:
-                range_key = f"{current_sheet}_{x_col}"
+            if not current_sheet or not x_col:
+                print("시트 또는 X 컬럼이 없습니다.")
+                return
                 
-                if not hasattr(self.main_app, '_saved_x_range'):
-                    self.main_app._saved_x_range = {}
-                
-                # 현재 입력된 값 저장
-                if hasattr(self, 'xlim_min_numeric_var') and hasattr(self, 'xlim_max_numeric_var'):
-                    # 숫자축인 경우
-                    try:
-                        min_val = float(self.xlim_min_numeric_var.get())
-                        max_val = float(self.xlim_max_numeric_var.get())
-                    except:
-                        min_val = self.xlim_min_numeric_var.get()
-                        max_val = self.xlim_max_numeric_var.get()
-                elif hasattr(self, 'xlim_min_timestamp_var') and hasattr(self, 'xlim_max_timestamp_var'):
-                    # 시간축인 경우
-                    try:
-                        min_val = pd.to_datetime(self.xlim_min_timestamp_var.get())
-                        max_val = pd.to_datetime(self.xlim_max_timestamp_var.get())
-                    except:
-                        min_val = self.xlim_min_timestamp_var.get()
-                        max_val = self.xlim_max_timestamp_var.get()
-                else:
-                    # 기본값 사용
-                    min_val = 0.0
-                    max_val = 10.0
+            range_key = f"{current_sheet}_{x_col}"
+            
+            if not hasattr(self.main_app, '_saved_x_range'):
+                self.main_app._saved_x_range = {}
+            
+            # 현재 활성화된 탭 확인
+            try:
+                current_tab = self.axis_notebook.index('current')
+            except:
+                current_tab = 1  # 기본값: 시간축 탭
+            
+            if current_tab == 0:  # 숫자축 탭
+                # 숫자축인 경우
+                try:
+                    min_val = float(self.xlim_min_numeric_var.get())
+                    max_val = float(self.xlim_max_numeric_var.get())
+                    print(f"숫자축 범위 저장: {min_val} ~ {max_val}")
+                except Exception as e:
+                    print(f"숫자축 범위 변환 오류: {e}")
+                    return
                     
-                    self.main_app._saved_x_range[range_key] = {
-                        'min': min_val,
-                        'max': max_val
-                    }
-                    print(f"X축 범위 저장됨: {min_val} ~ {max_val}")
+            elif current_tab == 1:  # 시간축 탭
+                # 시간축인 경우 - pd.to_datetime으로 변환하여 저장
+                try:
+                    min_val = pd.to_datetime(self.xlim_min_timestamp_var.get())
+                    max_val = pd.to_datetime(self.xlim_max_timestamp_var.get())
+                    print(f"시간축 범위 저장 (datetime): {min_val} ~ {max_val}")
+                except Exception as e:
+                    print(f"시간축 변환 오류: {e}")
+                    min_val = self.xlim_min_timestamp_var.get()
+                    max_val = self.xlim_max_timestamp_var.get()
+                    print(f"시간축 범위 저장 (문자열): {min_val} ~ {max_val}")
+            else:
+                # 기본값 사용
+                min_val = 0.0
+                max_val = 10.0
+                print(f"기본 범위 사용: {min_val} ~ {max_val}")
+            
+            self.main_app._saved_x_range[range_key] = {
+                'min': min_val,
+                'max': max_val
+            }
+            
         except Exception as e:
             print(f"X축 범위 저장 오류: {e}")
+            import traceback
+            traceback.print_exc()
         
-    def _format_timestamp_input(self, event):
-        """시간 입력 자동 포맷팅"""
-        try:
-            widget = event.widget
-            current_text = widget.get()
-            
-            # 숫자만 추출
-            numbers = ''.join(filter(str.isdigit, current_text))
-            
-            if len(numbers) >= 4:  # 최소 연도가 있어야 함
-                formatted = self._format_numbers_to_timestamp(numbers)
-                if formatted != current_text:
-                    # 커서 위치 저장
-                    cursor_pos = widget.index(tk.INSERT)
-                    
-                    # 텍스트 업데이트
-                    widget.delete(0, tk.END)
-                    widget.insert(0, formatted)
-                    
-                    # 커서 위치 조정 (포맷팅으로 인한 위치 변화 보정)
-                    new_cursor_pos = min(cursor_pos, len(formatted))
-                    widget.icursor(new_cursor_pos)
-                    
-        except Exception as e:
-            print(f"시간 포맷팅 오류: {e}")
     
     def _format_numbers_to_timestamp(self, numbers):
         """숫자 문자열을 시간 형식으로 변환"""
@@ -979,7 +1119,6 @@ class PlotSettingsWindow:
         self.title_fontsize_var.trace('w', lambda *args: self._schedule_update())
         title_fontsize_entry = ttk.Entry(title_font_frame, textvariable=self.title_fontsize_var, width=8)
         title_fontsize_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(title_font_frame, text='(8~30)').pack(side=tk.LEFT, padx=2)
         
         # X축 레이블 글자 크기
         xlabel_font_frame = ttk.Frame(font_frame)
@@ -990,7 +1129,6 @@ class PlotSettingsWindow:
         self.xlabel_fontsize_var.trace('w', lambda *args: self._schedule_update())
         xlabel_fontsize_entry = ttk.Entry(xlabel_font_frame, textvariable=self.xlabel_fontsize_var, width=8)
         xlabel_fontsize_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(xlabel_font_frame, text='(8~24)').pack(side=tk.LEFT, padx=2)
         
         # Y축 레이블 글자 크기
         ylabel_font_frame = ttk.Frame(font_frame)
@@ -1001,7 +1139,6 @@ class PlotSettingsWindow:
         self.ylabel_fontsize_var.trace('w', lambda *args: self._schedule_update())
         ylabel_fontsize_entry = ttk.Entry(ylabel_font_frame, textvariable=self.ylabel_fontsize_var, width=8)
         ylabel_fontsize_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(ylabel_font_frame, text='(8~24)').pack(side=tk.LEFT, padx=2)
         
         # X축 숫자 글자 크기
         xtick_font_frame = ttk.Frame(font_frame)
@@ -1012,7 +1149,6 @@ class PlotSettingsWindow:
         self.x_tick_fontsize_var.trace('w', lambda *args: self._schedule_update())
         xtick_fontsize_entry = ttk.Entry(xtick_font_frame, textvariable=self.x_tick_fontsize_var, width=8)
         xtick_fontsize_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(xtick_font_frame, text='(6~20)').pack(side=tk.LEFT, padx=2)
         
         # Y축 숫자 글자 크기
         ytick_font_frame = ttk.Frame(font_frame)
@@ -1023,7 +1159,6 @@ class PlotSettingsWindow:
         self.y_tick_fontsize_var.trace('w', lambda *args: self._schedule_update())
         ytick_fontsize_entry = ttk.Entry(ytick_font_frame, textvariable=self.y_tick_fontsize_var, width=8)
         ytick_fontsize_entry.pack(side=tk.LEFT, padx=5)
-        ttk.Label(ytick_font_frame, text='(6~20)').pack(side=tk.LEFT, padx=2)
         
     def _choose_color(self):
         """색상 선택"""
@@ -1155,28 +1290,27 @@ class PlotSettingsWindow:
             print(f"시간축 자동 범위 설정 오류: {e}")
 
     def _update_tab_availability(self):
-        """탭 활성화/비활성화 업데이트"""
+        """탭 활성화/비활성화 업데이트 - 원본 main_app.py와 동일한 로직"""
         try:
-            # X 컬럼이 Timestamp인지 확인
-            x_col = self.main_app.x_combo.get()
-            current_sheet = self.main_app.sheet_combo.get()
-            is_timestamp = False
-            
-            if x_col and current_sheet and current_sheet in self.main_app.df_map:
-                df = self.main_app.df_map[current_sheet]
-                is_timestamp = self.main_app._detect_datetime_column(df, x_col)
+            # 현재 axis_type 확인
+            axis_type = self.main_app.axis_type_var.get()
+            print(f"현재 axis_type: {axis_type}")
             
             # 탭 활성화/비활성화
-            if is_timestamp:
+            if axis_type == 'datetime':
                 # 시간축인 경우: 시간축 탭 활성화, 숫자축 탭 비활성화
                 self.axis_notebook.tab(0, state='disabled')  # 숫자축 탭 비활성화
                 self.axis_notebook.tab(1, state='normal')   # 시간축 탭 활성화
-                print("시간축 감지: 숫자축 탭 비활성화, 시간축 탭 활성화")
+                # 시간축 탭으로 전환
+                self.axis_notebook.select(1)
+                print("시간축 모드: 숫자축 탭 비활성화, 시간축 탭 활성화")
             else:
                 # 숫자축인 경우: 숫자축 탭 활성화, 시간축 탭 비활성화
                 self.axis_notebook.tab(0, state='normal')    # 숫자축 탭 활성화
                 self.axis_notebook.tab(1, state='disabled') # 시간축 탭 비활성화
-                print("숫자축 감지: 숫자축 탭 활성화, 시간축 탭 비활성화")
+                # 숫자축 탭으로 전환
+                self.axis_notebook.select(0)
+                print("숫자축 모드: 숫자축 탭 활성화, 시간축 탭 비활성화")
                 
         except Exception as e:
             print(f"탭 활성화/비활성화 오류: {e}")
@@ -1410,6 +1544,17 @@ class PlotSettingsWindow:
         except Exception as e:
             messagebox.showerror('오류', f'미리보기 생성 중 오류가 발생했습니다: {e}')
             
+    def _convert_korean_time_format(self, korean_format: str) -> str:
+        """한글 시간 형식을 matplotlib 형식으로 변환"""
+        format_mapping = {
+            '시:분:초:밀리초': '%H:%M:%S.%f',
+            '시:분:초': '%H:%M:%S',
+            '시:분': '%H:%M',
+            '년-월-일 시:분:초': '%Y-%m-%d %H:%M:%S',
+            '년-월-일 시:분': '%Y-%m-%d %H:%M'
+        }
+        return format_mapping.get(korean_format, '%H:%M:%S.%f')
+    
     def _collect_settings(self):
         """현재 설정 수집"""
         settings = {
@@ -1471,12 +1616,20 @@ class PlotSettingsWindow:
         if hasattr(self, 'time_interval_value'):
             settings['time_interval_value'] = self.time_interval_value.get()
         if hasattr(self, 'time_format'):
-            settings['time_format'] = self.time_format.get()
+            # 한글 형식을 matplotlib 형식으로 변환
+            korean_format = self.time_format.get()
+            settings['time_format'] = self._convert_korean_time_format(korean_format)
         
         # X축 범위 처리 - 현재 선택된 탭에 따라 처리
         try:
             selected_tab = self.axis_notebook.select()
             tab_index = self.axis_notebook.index(selected_tab)
+            
+            # axis_type 설정 (원본 main_app.py와 동일)
+            if tab_index == 1:  # 시간축 탭
+                self.main_app.axis_type_var.set('datetime')
+            else:  # 숫자축 탭
+                self.main_app.axis_type_var.set('numeric')
             
             if tab_index == 0:  # 숫자축 탭
                 # 숫자축 처리
@@ -1519,18 +1672,18 @@ class PlotSettingsWindow:
                                 settings['xlim_min'] = x_data.min()
                                 settings['xlim_max'] = x_data.max()
                             else:
-                                settings['xlim_min'] = self._parse_datetime(self.xlim_min_timestamp_var.get())
-                                settings['xlim_max'] = self._parse_datetime(self.xlim_max_timestamp_var.get())
+                                settings['xlim_min'] = pd.to_datetime(self.xlim_min_timestamp_var.get())
+                                settings['xlim_max'] = pd.to_datetime(self.xlim_max_timestamp_var.get())
                         else:
-                            settings['xlim_min'] = self._parse_datetime(self.xlim_min_timestamp_var.get())
-                            settings['xlim_max'] = self._parse_datetime(self.xlim_max_timestamp_var.get())
+                            settings['xlim_min'] = pd.to_datetime(self.xlim_min_timestamp_var.get())
+                            settings['xlim_max'] = pd.to_datetime(self.xlim_max_timestamp_var.get())
                     except:
-                        settings['xlim_min'] = self._parse_datetime(self.xlim_min_timestamp_var.get())
-                        settings['xlim_max'] = self._parse_datetime(self.xlim_max_timestamp_var.get())
+                        settings['xlim_min'] = pd.to_datetime(self.xlim_min_timestamp_var.get())
+                        settings['xlim_max'] = pd.to_datetime(self.xlim_max_timestamp_var.get())
                 else:
                     # 수동 모드 - 사용자 입력값 사용
-                    settings['xlim_min'] = self._parse_datetime(self.xlim_min_timestamp_var.get())
-                    settings['xlim_max'] = self._parse_datetime(self.xlim_max_timestamp_var.get())
+                    settings['xlim_min'] = pd.to_datetime(self.xlim_min_timestamp_var.get())
+                    settings['xlim_max'] = pd.to_datetime(self.xlim_max_timestamp_var.get())
                     
         except Exception as e:
             print(f"X축 범위 처리 오류: {e}")
@@ -1579,7 +1732,6 @@ class PlotSettingsWindow:
             # 메인 앱에 설정 전달
             self.main_app.apply_plot_settings(settings)
             
-            messagebox.showinfo('성공', '그래프 설정이 적용되었습니다.')
             self.window.destroy()
             
         except Exception as e:
@@ -1598,13 +1750,13 @@ class PlotSettingsWindow:
                 messagebox.showerror('오류', '마커 크기는 1~50 범위여야 합니다.')
                 return False
             
-            # 축 간격 수 검증
-            if not (2 <= settings['x_ticks'] <= 50):
-                messagebox.showerror('오류', 'X축 간격 수는 2~50 범위여야 합니다.')
+            # 축 간격 단위 검증 (제한 완전 해제 - 0보다 큰 값만 확인)
+            if settings['x_ticks'] <= 0:
+                messagebox.showerror('오류', 'X축 간격 단위는 0보다 커야 합니다.')
                 return False
             
-            if not (2 <= settings['y_ticks'] <= 50):
-                messagebox.showerror('오류', 'Y축 간격 수는 2~50 범위여야 합니다.')
+            if settings['y_ticks'] <= 0:
+                messagebox.showerror('오류', 'Y축 간격 단위는 0보다 커야 합니다.')
                 return False
             
             # 글자 크기 검증
