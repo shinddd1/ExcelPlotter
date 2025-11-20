@@ -265,7 +265,6 @@ class DragDropHandler:
             print(f"드래그 앤 드롭 정리 오류: {e}")
 
 
-
 def create_drag_drop_handler(root: tk.Tk, on_file_dropped: Callable[[str], None]) -> DragDropHandler:
     """
     드래그 앤 드롭 핸들러를 생성하는 팩토리 함수
