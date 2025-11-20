@@ -199,6 +199,17 @@ class PlotSettingsWindow:
             if not hasattr(self.main_app, '_saved_x_range'):
                 self.main_app._saved_x_range = {}
             
+            # 사용자가 수정한 Y축 범위가 있는지 확인
+            if not hasattr(self.main_app, '_user_modified_y_range'):
+                self.main_app._user_modified_y_range = False
+            
+            if not hasattr(self.main_app, '_saved_y_range'):
+                self.main_app._saved_y_range = {}
+            
+            # 사용자가 수정한 스타일 설정 확인
+            if not hasattr(self.main_app, '_saved_plot_styles'):
+                self.main_app._saved_plot_styles = {}
+            
             # 현재 시트와 X축 컬럼을 키로 사용
             range_key = f"{current_sheet}_{x_col}"
             
@@ -253,9 +264,26 @@ class PlotSettingsWindow:
                     actual_x_min = 0.0
                     actual_x_max = 10.0
             
-            # 현재 플롯에서 설정 추출
+            # Y축 범위 결정 (사용자 수정 값 또는 현재 플롯 값)
             fig = self.main_app.figure
             ax = fig.axes[0] if fig and fig.axes else None
+            
+            # Y축 범위 가져오기
+            if self.main_app._user_modified_y_range and range_key in self.main_app._saved_y_range:
+                # 사용자가 수정한 Y축 범위 사용
+                saved_y_range = self.main_app._saved_y_range[range_key]
+                actual_y_min = saved_y_range['min']
+                actual_y_max = saved_y_range['max']
+                print(f"저장된 Y축 범위 사용: {actual_y_min} ~ {actual_y_max}")
+            elif ax:
+                # 현재 플롯의 Y축 범위 사용
+                actual_y_min = ax.get_ylim()[0]
+                actual_y_max = ax.get_ylim()[1]
+                print(f"현재 플롯 Y축 범위 사용: {actual_y_min} ~ {actual_y_max}")
+            else:
+                # 기본값
+                actual_y_min = 0.0
+                actual_y_max = 10.0
             
             if ax:
                 # 기본 설정
@@ -271,8 +299,8 @@ class PlotSettingsWindow:
                     'ylabel': ax.get_ylabel() or '',
                     'xlim_min': actual_x_min,
                     'xlim_max': actual_x_max,
-                    'ylim_min': ax.get_ylim()[0],
-                    'ylim_max': ax.get_ylim()[1],
+                    'ylim_min': actual_y_min,
+                    'ylim_max': actual_y_max,
                 'x_ticks': 1,  # 간격 단위 (기본값: 1)
                 'y_ticks': 1,  # 간격 단위 (기본값: 1)
                 'x_tick_fontsize': 12,  # 나중에 실제 값으로 업데이트됨
@@ -321,7 +349,19 @@ class PlotSettingsWindow:
                 self.settings['y_marker_sizes'] = {}
                 self.settings['y_plot_types'] = {}
                 
-                if lines:
+                # 저장된 스타일이 있으면 먼저 로드
+                if range_key in self.main_app._saved_plot_styles:
+                    saved_styles = self.main_app._saved_plot_styles[range_key]
+                    self.settings['y_colors'] = saved_styles.get('y_colors', {}).copy()
+                    self.settings['y_line_widths'] = saved_styles.get('y_line_widths', {}).copy()
+                    self.settings['y_line_styles'] = saved_styles.get('y_line_styles', {}).copy()
+                    self.settings['y_markers'] = saved_styles.get('y_markers', {}).copy()
+                    self.settings['y_marker_sizes'] = saved_styles.get('y_marker_sizes', {}).copy()
+                    self.settings['y_plot_types'] = saved_styles.get('y_plot_types', {}).copy()
+                    print(f"저장된 스타일 복원: {range_key}")
+                
+                # 저장된 스타일이 없으면 현재 플롯에서 추출
+                if lines and not self.settings['y_colors']:
                     for i, line in enumerate(lines):
                         label = line.get_label()
                         if label and label != '_nolegend_':
@@ -445,7 +485,6 @@ class PlotSettingsWindow:
         # 캔버스와 스크롤바 배치
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-    
     def _build_plot_style_section(self, parent):
         """플롯 스타일 섹션"""
         style_frame = ttk.LabelFrame(parent, text='플롯 스타일', padding=10)
@@ -483,13 +522,19 @@ class PlotSettingsWindow:
         y_style_frame = ttk.LabelFrame(parent, text='Y축 컬럼별 스타일', padding=5)
         y_style_frame.pack(fill=tk.X, pady=5)
         
-        # 각 Y축 컬럼에 대한 스타일 선택
-        self.y_color_vars = {}
-        self.y_line_width_vars = {}
-        self.y_line_style_vars = {}
-        self.y_marker_vars = {}
-        self.y_marker_size_vars = {}
-        self.y_plot_type_vars = {}
+        # 각 Y축 컬럼에 대한 스타일 선택 (기존 값 유지)
+        if not hasattr(self, 'y_color_vars'):
+            self.y_color_vars = {}
+        if not hasattr(self, 'y_line_width_vars'):
+            self.y_line_width_vars = {}
+        if not hasattr(self, 'y_line_style_vars'):
+            self.y_line_style_vars = {}
+        if not hasattr(self, 'y_marker_vars'):
+            self.y_marker_vars = {}
+        if not hasattr(self, 'y_marker_size_vars'):
+            self.y_marker_size_vars = {}
+        if not hasattr(self, 'y_plot_type_vars'):
+            self.y_plot_type_vars = {}
         
         for i, y_col in enumerate(y_columns):
             # 컬럼별 스타일 프레임
@@ -670,9 +715,17 @@ class PlotSettingsWindow:
         self.ylim_max_var = tk.DoubleVar(value=self.settings['ylim_max'])
         self.ylim_min_var.trace('w', lambda *args: self._schedule_update())
         self.ylim_max_var.trace('w', lambda *args: self._schedule_update())
-        ttk.Entry(ylim_frame, textvariable=self.ylim_min_var, width=8).pack(side=tk.LEFT, padx=2)
+        
+        self.ylim_min_entry = ttk.Entry(ylim_frame, textvariable=self.ylim_min_var, width=8)
+        self.ylim_min_entry.pack(side=tk.LEFT, padx=2)
+        self.ylim_min_entry.bind('<KeyRelease>', self._on_y_range_modified)
+        
         ttk.Label(ylim_frame, text='~').pack(side=tk.LEFT)
-        ttk.Entry(ylim_frame, textvariable=self.ylim_max_var, width=8).pack(side=tk.LEFT, padx=2)
+        
+        self.ylim_max_entry = ttk.Entry(ylim_frame, textvariable=self.ylim_max_var, width=8)
+        self.ylim_max_entry.pack(side=tk.LEFT, padx=2)
+        self.ylim_max_entry.bind('<KeyRelease>', self._on_y_range_modified)
+        
         ttk.Button(ylim_frame, text='자동', command=self._auto_ylim).pack(side=tk.LEFT, padx=5)
         
         # Y축 간격 (공통)
@@ -767,7 +820,7 @@ class PlotSettingsWindow:
         interval_frame.pack(fill=tk.X, pady=2)
         ttk.Label(interval_frame, text='시간 간격 단위:').pack(side=tk.LEFT)
         
-        self.time_interval_unit = tk.StringVar(value=self.settings.get('time_interval_unit', 'minutes'))
+        self.time_interval_unit = tk.StringVar(value=self.settings.get('time_interval_unit', 'days'))
         self.time_interval_unit.trace('w', lambda *args: self._schedule_update())
         interval_combo = ttk.Combobox(interval_frame, textvariable=self.time_interval_unit, width=12, state='readonly')
         interval_combo['values'] = ['seconds', 'minutes', 'hours', 'days']
@@ -788,10 +841,10 @@ class PlotSettingsWindow:
         format_frame.pack(fill=tk.X, pady=2)
         ttk.Label(format_frame, text='시간 표시 형식:').pack(side=tk.LEFT)
         
-        self.time_format = tk.StringVar(value=self.settings.get('time_format', '시:분:초:밀리초'))
+        self.time_format = tk.StringVar(value=self.settings.get('time_format', 'YYYYMMDD_HHMM'))
         self.time_format.trace('w', lambda *args: self._schedule_update())
         format_combo = ttk.Combobox(format_frame, textvariable=self.time_format, width=15, state='readonly')
-        format_combo['values'] = ['시:분:초:밀리초', '시:분:초', '시:분', '년-월-일 시:분:초', '년-월-일 시:분']
+        format_combo['values'] = ['시:분:초:밀리초', '시:분:초', '시:분', '년-월-일 시:분:초', '년-월-일 시:분', 'YYYYMMDD_HHMM']
         format_combo.pack(side=tk.LEFT, padx=5)
         
         # 초기 상태 설정: 입력 활성화 (수동)
@@ -836,6 +889,14 @@ class PlotSettingsWindow:
         self.main_app._user_modified_x_range = True
         self._save_current_x_range()
         print("사용자가 숫자 축 범위를 수정했습니다.")
+        # 실시간 업데이트 스케줄링
+        self._schedule_update()
+    
+    def _on_y_range_modified(self, event):
+        """Y축 범위 수정 감지"""
+        self.main_app._user_modified_y_range = True
+        self._save_current_y_range()
+        print("사용자가 Y축 범위를 수정했습니다.")
         # 실시간 업데이트 스케줄링
         self._schedule_update()
         
@@ -957,7 +1018,72 @@ class PlotSettingsWindow:
             print(f"X축 범위 저장 오류: {e}")
             import traceback
             traceback.print_exc()
+    
+    def _save_current_y_range(self):
+        """현재 Y축 범위를 저장"""
+        try:
+            current_sheet = self.main_app.sheet_combo.get()
+            x_col = self.main_app.x_combo.get()
+            
+            if not current_sheet or not x_col:
+                print("시트 또는 X 컬럼이 없습니다.")
+                return
+            
+            range_key = f"{current_sheet}_{x_col}"
+            
+            if not hasattr(self.main_app, '_saved_y_range'):
+                self.main_app._saved_y_range = {}
+            
+            # Y축 범위 저장
+            try:
+                min_val = float(self.ylim_min_var.get())
+                max_val = float(self.ylim_max_var.get())
+                print(f"Y축 범위 저장: {min_val} ~ {max_val}")
+                
+                self.main_app._saved_y_range[range_key] = {
+                    'min': min_val,
+                    'max': max_val
+                }
+            except Exception as e:
+                print(f"Y축 범위 변환 오류: {e}")
+                return
         
+        except Exception as e:
+            print(f"Y축 범위 저장 오류: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _save_current_plot_styles(self, settings):
+        """현재 플롯 스타일 설정 저장"""
+        try:
+            current_sheet = self.main_app.sheet_combo.get()
+            x_col = self.main_app.x_combo.get()
+            
+            if not current_sheet or not x_col:
+                print("시트 또는 X 컬럼이 없습니다.")
+                return
+            
+            range_key = f"{current_sheet}_{x_col}"
+            
+            if not hasattr(self.main_app, '_saved_plot_styles'):
+                self.main_app._saved_plot_styles = {}
+            
+            # 스타일 설정 저장
+            self.main_app._saved_plot_styles[range_key] = {
+                'y_colors': settings.get('y_colors', {}).copy(),
+                'y_line_widths': settings.get('y_line_widths', {}).copy(),
+                'y_line_styles': settings.get('y_line_styles', {}).copy(),
+                'y_markers': settings.get('y_markers', {}).copy(),
+                'y_marker_sizes': settings.get('y_marker_sizes', {}).copy(),
+                'y_plot_types': settings.get('y_plot_types', {}).copy(),
+            }
+            print(f"스타일 설정 저장: {range_key}")
+            print(f"  색상: {settings.get('y_colors', {})}")
+        
+        except Exception as e:
+            print(f"스타일 설정 저장 오류: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _format_numbers_to_timestamp(self, numbers):
         """숫자 문자열을 시간 형식으로 변환"""
@@ -1547,9 +1673,10 @@ class PlotSettingsWindow:
             '시:분:초': '%H:%M:%S',
             '시:분': '%H:%M',
             '년-월-일 시:분:초': '%Y-%m-%d %H:%M:%S',
-            '년-월-일 시:분': '%Y-%m-%d %H:%M'
+            '년-월-일 시:분': '%Y-%m-%d %H:%M',
+            'YYYYMMDD_HHMM': '%Y%m%d_%H%M'
         }
-        return format_mapping.get(korean_format, '%H:%M:%S.%f')
+        return format_mapping.get(korean_format, '%Y%m%d_%H%M')
     
     def _collect_settings(self):
         """현재 설정 수집"""
@@ -1679,8 +1806,12 @@ class PlotSettingsWindow:
             if not self._validate_settings(settings):
                 return
             
-            # 현재 X축 범위 저장
+            # 현재 X축, Y축 범위 저장
             self._save_current_x_range()
+            self._save_current_y_range()
+            
+            # 현재 스타일 설정 저장
+            self._save_current_plot_styles(settings)
             
             # 메인 앱에 설정 전달
             self.main_app.apply_plot_settings(settings)
@@ -1747,3 +1878,4 @@ class PlotSettingsWindow:
         except Exception as e:
             messagebox.showerror('오류', f'설정 검증 중 오류가 발생했습니다: {e}')
             return False
+    

@@ -17,6 +17,8 @@ from excel_integration import ExcelIntegration
 from plot_settings import PlotSettingsWindow
 from image_saver import ImageSaver
 from simple_drag_drop import create_simple_drag_drop_handler
+from double_y_axis import DoubleYAxisSettings
+from zoom_manager import ZoomManager
 
 # SciencePlots
 try:
@@ -88,6 +90,13 @@ class ExcelPlotterApp:
         
         # 기본 축 타입 설정 (플롯 설정 창에서 결정됨)
         self.axis_type_var = tk.StringVar(value='numeric')
+        
+        # Double Y축 설정 초기화
+        self.double_y_settings = DoubleYAxisSettings(root, self)
+        self.ax2 = None  # 오른쪽 Y축
+        
+        # 5초 간격 샘플링 옵션
+        self.resample_5sec = tk.BooleanVar(value=False)
 
         # 한글 폰트 설정
         self._setup_korean_font()
@@ -366,6 +375,10 @@ class ExcelPlotterApp:
         self.datetime_status_var = tk.StringVar(value='')
         self.datetime_status_label = ttk.Label(select_frame, textvariable=self.datetime_status_var, foreground='blue')
         self.datetime_status_label.grid(row=3, column=1, sticky=tk.W, padx=6)
+        
+        # 5초 간격 샘플링 옵션
+        ttk.Checkbutton(select_frame, text='5초 간격 샘플링', variable=self.resample_5sec, 
+                       command=self._schedule_auto_refresh).grid(row=4, column=1, sticky=tk.W, padx=6)
 
         # Excel 통합 섹션
         edit_frame = ttk.LabelFrame(left_panel, text='Excel 통합', padding=8)
@@ -394,41 +407,22 @@ class ExcelPlotterApp:
         self.style_no_latex.set(True)
         # 스타일 체크박스(Science, No-latex)는 더이상 표시하지 않음
 
+        # 줌 매니저 초기화
+        self.zoom_manager = ZoomManager(self)
+        
         # 줌 컨트롤 섹션
         zoom_frame = ttk.LabelFrame(left_panel, text='줌 컨트롤', padding=8)
         zoom_frame.pack(fill=tk.X, pady=(0, 8))
-
-        # 줌 모드 상태 변수
-        self.zoom_mode = tk.BooleanVar(value=False)
-        self.zoom_active = False
-        self.zoom_start_x = None
-        self.zoom_start_y = None
-        self.zoom_end_x = None
-        self.zoom_end_y = None
-        self.zoom_rectangle = None  # 드래그 사각형 객체
-        self.zoom_stack = []  # 줌 스택 (여러 번 줌인 가능)
-        self.zoom_cids = []  # 이벤트 연결 ID 저장
-
-        # 줌 버튼들
-        zoom_buttons = ttk.Frame(zoom_frame)
-        zoom_buttons.pack(fill=tk.X)
         
-        self.zoom_button = ttk.Button(zoom_buttons, text='🔍 줌 모드', command=self._toggle_zoom_mode)
-        self.zoom_button.pack(side=tk.LEFT)
-        
-        ttk.Button(zoom_buttons, text='줌 리셋', command=self._reset_zoom).pack(side=tk.LEFT, padx=4)
-        ttk.Button(zoom_buttons, text='줌 아웃', command=self._zoom_out).pack(side=tk.LEFT, padx=4)
-        
-        # 줌 상태 표시
-        self.zoom_status_var = tk.StringVar(value='줌 모드: 비활성')
-        self.zoom_status_label = ttk.Label(zoom_frame, textvariable=self.zoom_status_var, foreground='gray')
-        self.zoom_status_label.pack(pady=(4, 0))
+        # 줌 컨트롤 UI 생성
+        self.zoom_manager.create_zoom_controls(zoom_frame)
 
         # 플롯 컨트롤 섹션
         plot_controls = ttk.Frame(left_panel)
         plot_controls.pack(fill=tk.X)
 
         ttk.Button(plot_controls, text='이미지 저장', command=self.on_save).pack(side=tk.LEFT)
+        ttk.Button(plot_controls, text='Double Y축', command=self.show_double_y_settings).pack(side=tk.LEFT, padx=5)
 
         # === 오른쪽 패널 구성 ===
         # 플롯 섹션
@@ -709,7 +703,7 @@ class ExcelPlotterApp:
     def _on_plot_double_click(self, event):
         """그래프 더블클릭 이벤트 핸들러"""
         # 줌 모드가 활성화되어 있으면 더블클릭 무시
-        if self.zoom_mode.get():
+        if self.zoom_manager.zoom_mode.get():
             return
             
         import time
@@ -724,6 +718,13 @@ class ExcelPlotterApp:
                 messagebox.showerror('오류', f'그래프 설정 창을 열 수 없습니다: {e}')
         
         self._last_click_time = current_time
+    
+    def show_double_y_settings(self):
+        """Double Y축 설정 창 표시"""
+        try:
+            self.double_y_settings.show_settings_window()
+        except Exception as e:
+            messagebox.showerror('오류', f'Double Y축 설정 창을 열 수 없습니다: {e}')
     
     def apply_plot_settings(self, settings: dict) -> None:
         """그래프 설정 적용 - 기존 플롯 로직을 활용하여 새로 그리기"""
@@ -775,10 +776,43 @@ class ExcelPlotterApp:
             if self.style_bright.get():
                 plt.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377', '#BBBBBB'])
 
-            # 기존 플롯 클리어
+            # Double Y축 활성화 여부 확인
+            double_y_active = hasattr(self, 'double_y_settings') and self.double_y_settings.use_double_y.get()
+            
+            # 기존 플롯 클리어 (Double Y축이 활성화되어 있으면 ax2는 유지)
             self.ax.clear()
             
-            # 설정에 따라 플롯 그리기
+            # Double Y축이 비활성화된 경우에만 ax2 제거
+            if not double_y_active:
+                if hasattr(self, 'ax2') and self.ax2 is not None:
+                    try:
+                        self.ax2.clear()
+                        self.ax2.remove()
+                    except Exception as e:
+                        print(f"ax2 제거 중 오류: {e}")
+                    self.ax2 = None
+                
+                # Figure의 모든 추가 axes 제거
+                while len(self.figure.axes) > 1:
+                    try:
+                        self.figure.axes[-1].remove()
+                        print(f"추가 axes 제거됨, 남은 axes 수: {len(self.figure.axes)}")
+                    except Exception as e:
+                        print(f"추가 axes 제거 중 오류: {e}")
+                        break
+            else:
+                print("Double Y축 활성화 상태 - ax2 유지")
+            
+            # Double Y축이 활성화된 경우 Double Y축 모듈에서 처리
+            if double_y_active:
+                print("Double Y축 활성화 - Double Y축 모듈에서 플롯 처리")
+                # Double Y축 설정 업데이트 (현재 plot_settings 반영)
+                self.current_plot_settings = settings
+                # Double Y축 재적용
+                self.root.after(50, lambda: self.double_y_settings._apply_to_main_app())
+                return  # 조기 반환 - 나머지 일반 플롯 로직 건너뜀
+            
+            # 일반 플롯 그리기
             for name, series in ymap.items():
                 # Y축 컬럼별 스타일 설정
                 color = settings.get('y_colors', {}).get(name, settings['color'])
@@ -948,6 +982,9 @@ class ExcelPlotterApp:
             # 그리드 표시
             self.ax.grid(True, alpha=0.3)
             
+            # 현재 설정 저장 (취소 시 복원용)
+            self.current_plot_settings = settings.copy()
+            
             # 캔버스 새로고침
             self.plot_canvas.draw()
             
@@ -1067,14 +1104,12 @@ class ExcelPlotterApp:
             # 시간축 모드: 시간 데이터로 변환
             print(f"시간축 모드로 처리: {x_col}")
             work[x_col] = self._parse_datetime_column(work, x_col)
-            x = work[x_col]
         else:
             # 숫자축 모드: 숫자로 변환
             print(f"숫자축 모드로 처리: {x_col}")
             if x_col not in work.columns:
                 raise ValueError(f'컬럼 없음: {x_col}')
             work[x_col] = pd.to_numeric(work[x_col], errors='coerce')
-            x = work[x_col]
 
         # Y 컬럼들을 숫자로 변환
         for c in y_cols:
@@ -1082,12 +1117,39 @@ class ExcelPlotterApp:
                 raise ValueError(f'컬럼 없음: {c}')
             work[c] = pd.to_numeric(work[c], errors='coerce')
 
-        # 결측값 제거
-        work = work.dropna(subset=[x_col] + y_cols)
+        # 5초 간격 샘플링 처리
+        if self.resample_5sec.get() and axis_type == 'datetime':
+            print("5초 간격 샘플링 적용 중...")
+            try:
+                # NaN이 있는 행 제거 (리샘플링 전에)
+                work = work.dropna(subset=[x_col])
+                
+                # X 컬럼을 인덱스로 설정
+                work = work.set_index(x_col)
+                
+                # 5초 간격으로 리샘플링 (평균값 사용)
+                work = work.resample('5S').mean()
+                
+                # 인덱스를 다시 컬럼으로
+                work = work.reset_index()
+                
+                print(f"샘플링 완료: {len(work)} 포인트")
+            except Exception as e:
+                print(f"5초 간격 샘플링 오류: {e}")
+                import traceback
+                traceback.print_exc()
+                # 오류 발생 시 원본 데이터 사용
+                pass
 
+        # X축에 유효한 값이 있는 행만 필터링 (X축 기준)
+        x = work[x_col].dropna()
+        
+        # Y 컬럼들은 X축의 인덱스에 맞춰서 정렬 (매칭 안되는 부분은 NaN)
         ymap: dict[str, pd.Series] = {}
         for c in y_cols:
-            ymap[c] = work[c]
+            # X축 인덱스에 맞춰서 Y 데이터 재정렬 (없는 인덱스는 NaN)
+            ymap[c] = work[c].reindex(x.index)
+        
         return x, ymap
 
     def on_plot(self) -> None:
@@ -1124,8 +1186,26 @@ class ExcelPlotterApp:
             if self.style_bright.get():
                 plt.rcParams['axes.prop_cycle'] = matplotlib.cycler(color=['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377', '#BBBBBB'])
 
-            # 기존 플롯 클리어
+            # 기존 플롯 완전히 클리어
             self.ax.clear()
+            
+            # 기존 오른쪽 Y축(ax2) 완전히 제거
+            if hasattr(self, 'ax2') and self.ax2 is not None:
+                try:
+                    self.ax2.clear()
+                    self.ax2.remove()
+                except Exception as e:
+                    print(f"ax2 제거 중 오류: {e}")
+                self.ax2 = None
+            
+            # Figure의 모든 추가 axes 제거
+            while len(self.figure.axes) > 1:
+                try:
+                    self.figure.axes[-1].remove()
+                    print(f"추가 axes 제거됨, 남은 axes 수: {len(self.figure.axes)}")
+                except Exception as e:
+                    print(f"추가 axes 제거 중 오류: {e}")
+                    break
             
             # 플롯 그리기
             for name, series in ymap.items():
@@ -1161,8 +1241,11 @@ class ExcelPlotterApp:
     def on_save(self) -> None:
         """이미지 저장 - Plot Image 폴더에 자동으로 저장"""
         try:
-            # 현재 플롯이 있는지 확인
-            if not hasattr(self.ax, 'lines') or not self.ax.lines:
+            # 현재 플롯이 있는지 확인 (lines 또는 collections)
+            has_lines = hasattr(self.ax, 'lines') and self.ax.lines
+            has_collections = hasattr(self.ax, 'collections') and self.ax.collections
+            
+            if not has_lines and not has_collections:
                 messagebox.showwarning('경고', '먼저 플롯을 그려주세요.')
                 return
             
@@ -1179,169 +1262,3 @@ class ExcelPlotterApp:
         except Exception as exc:
             messagebox.showerror('저장 오류', f'이미지 저장 중 오류가 발생했습니다: {exc}')
 
-    def _toggle_zoom_mode(self) -> None:
-        """줌 모드 토글"""
-        self.zoom_mode.set(not self.zoom_mode.get())
-        
-        if self.zoom_mode.get():
-            self.zoom_status_var.set('줌 모드: 활성 - 영역을 드래그하세요')
-            self.zoom_status_label.config(foreground='red')
-            self.zoom_button.config(text='🔍 줌 모드 (활성)')
-            
-            # 마우스 이벤트 바인딩
-            if hasattr(self, 'plot_canvas'):
-                # 기존 연결 해제
-                self._disconnect_zoom_events()
-                
-                # 새 이벤트 연결
-                cid1 = self.plot_canvas.mpl_connect('button_press_event', self._on_zoom_press)
-                cid2 = self.plot_canvas.mpl_connect('motion_notify_event', self._on_zoom_motion)
-                cid3 = self.plot_canvas.mpl_connect('button_release_event', self._on_zoom_release)
-                
-                self.zoom_cids = [cid1, cid2, cid3]
-        else:
-            self.zoom_status_var.set('줌 모드: 비활성')
-            self.zoom_status_label.config(foreground='gray')
-            self.zoom_button.config(text='🔍 줌 모드')
-            
-            # 드래그 사각형 제거
-            if self.zoom_rectangle is not None:
-                self.zoom_rectangle.remove()
-                self.zoom_rectangle = None
-                if hasattr(self, 'plot_canvas'):
-                    self.plot_canvas.draw()
-            
-            # 마우스 이벤트 해제
-            self._disconnect_zoom_events()
-    
-    def _disconnect_zoom_events(self) -> None:
-        """줌 이벤트 연결 해제"""
-        if hasattr(self, 'plot_canvas') and self.zoom_cids:
-            for cid in self.zoom_cids:
-                try:
-                    self.plot_canvas.mpl_disconnect(cid)
-                except:
-                    pass
-            self.zoom_cids = []
-
-    def _on_zoom_press(self, event) -> None:
-        """줌 드래그 시작"""
-        if not self.zoom_mode.get() or event.inaxes != self.ax:
-            return
-            
-        self.zoom_active = True
-        self.zoom_start_x = event.xdata
-        self.zoom_start_y = event.ydata
-        
-        # 현재 축 범위를 줌 스택에 저장 (첫 번째 드래그일 때만)
-        if not self.zoom_stack:
-            current_xlim = self.ax.get_xlim()
-            current_ylim = self.ax.get_ylim()
-            self.zoom_stack.append((current_xlim, current_ylim))
-
-    def _on_zoom_motion(self, event) -> None:
-        """줌 드래그 중"""
-        if not self.zoom_mode.get() or not self.zoom_active or event.inaxes != self.ax:
-            return
-            
-        self.zoom_end_x = event.xdata
-        self.zoom_end_y = event.ydata
-        
-        # 드래그 사각형 그리기/업데이트
-        if (self.zoom_start_x is not None and self.zoom_start_y is not None and 
-            self.zoom_end_x is not None and self.zoom_end_y is not None):
-            
-            # 기존 사각형 제거
-            if self.zoom_rectangle is not None:
-                self.zoom_rectangle.remove()
-            
-            # 새 사각형 그리기
-            width = abs(self.zoom_end_x - self.zoom_start_x)
-            height = abs(self.zoom_end_y - self.zoom_start_y)
-            x = min(self.zoom_start_x, self.zoom_end_x)
-            y = min(self.zoom_start_y, self.zoom_end_y)
-            
-            self.zoom_rectangle = self.ax.add_patch(
-                plt.Rectangle((x, y), width, height, 
-                            fill=False, edgecolor='red', linewidth=2, alpha=0.7)
-            )
-            self.plot_canvas.draw()
-
-    def _on_zoom_release(self, event) -> None:
-        """줌 드래그 종료"""
-        if not self.zoom_mode.get() or not self.zoom_active or event.inaxes != self.ax:
-            return
-            
-        self.zoom_active = False
-        
-        if self.zoom_start_x is not None and self.zoom_end_x is not None:
-            # 드래그된 영역으로 줌
-            x_min = min(self.zoom_start_x, self.zoom_end_x)
-            x_max = max(self.zoom_start_x, self.zoom_end_x)
-            y_min = min(self.zoom_start_y, self.zoom_end_y)
-            y_max = max(self.zoom_start_y, self.zoom_end_y)
-            
-            # 현재 축 범위 대비 최소 크기 체크 (1% 이상)
-            current_xlim = self.ax.get_xlim()
-            current_ylim = self.ax.get_ylim()
-            x_range = current_xlim[1] - current_xlim[0]
-            y_range = current_ylim[1] - current_ylim[0]
-            
-            min_x_size = x_range * 0.01  # 1%
-            min_y_size = y_range * 0.01  # 1%
-            
-            if abs(x_max - x_min) > min_x_size and abs(y_max - y_min) > min_y_size:
-                # 현재 범위를 스택에 저장
-                self.zoom_stack.append((current_xlim, current_ylim))
-                
-                # 줌 적용
-                self.ax.set_xlim(x_min, x_max)
-                self.ax.set_ylim(y_min, y_max)
-                self.plot_canvas.draw()
-                
-                print(f"줌 적용: X({x_min:.3f}, {x_max:.3f}), Y({y_min:.3f}, {y_max:.3f})")
-            else:
-                print(f"줌 무시: 영역이 너무 작음 (최소 {min_x_size:.3f} x {min_y_size:.3f})")
-        
-        # 드래그 사각형 제거
-        if self.zoom_rectangle is not None:
-            self.zoom_rectangle.remove()
-            self.zoom_rectangle = None
-            self.plot_canvas.draw()
-        
-        # 변수 초기화
-        self.zoom_start_x = None
-        self.zoom_start_y = None
-        self.zoom_end_x = None
-        self.zoom_end_y = None
-
-    def _reset_zoom(self) -> None:
-        """줌 리셋"""
-        if self.zoom_stack:
-            # 원본 범위로 복원
-            original_xlim, original_ylim = self.zoom_stack[0]
-            self.ax.set_xlim(original_xlim)
-            self.ax.set_ylim(original_ylim)
-            self.plot_canvas.draw()
-            
-            # 줌 스택 초기화
-            self.zoom_stack = []
-            print("줌 리셋 완료")
-        else:
-            print("리셋할 원본 범위가 없습니다.")
-    
-    def _zoom_out(self) -> None:
-        """줌 아웃 (이전 단계로)"""
-        if len(self.zoom_stack) > 1:
-            # 마지막 줌 단계 제거
-            self.zoom_stack.pop()
-            
-            # 이전 범위로 복원
-            prev_xlim, prev_ylim = self.zoom_stack[-1]
-            self.ax.set_xlim(prev_xlim)
-            self.ax.set_ylim(prev_ylim)
-            self.plot_canvas.draw()
-            
-            print(f"줌 아웃: X({prev_xlim[0]:.3f}, {prev_xlim[1]:.3f}), Y({prev_ylim[0]:.3f}, {prev_ylim[1]:.3f})")
-        else:
-            print("줌 아웃할 단계가 없습니다.")
