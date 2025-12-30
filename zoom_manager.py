@@ -5,6 +5,7 @@
 import tkinter as tk
 from tkinter import ttk
 import matplotlib.pyplot as plt
+from zoom_features import ZoomFeatures
 
 
 class ZoomManager:
@@ -35,6 +36,9 @@ class ZoomManager:
         self.zoom_button = None
         self.zoom_status_var = None
         self.zoom_status_label = None
+        
+        # 줌 확장 기능 초기화
+        self.zoom_features = ZoomFeatures(main_app)
     
     def create_zoom_controls(self, parent_frame):
         """줌 컨트롤 UI 생성
@@ -46,6 +50,7 @@ class ZoomManager:
             줌 컨트롤 프레임
         """
         zoom_frame = ttk.Frame(parent_frame)
+        zoom_frame.pack(fill=tk.X, pady=5)  # 부모 프레임에 pack 추가!
         
         # 줌 모드 토글 버튼
         self.zoom_button = ttk.Button(
@@ -129,7 +134,8 @@ class ZoomManager:
 
     def _on_zoom_press(self, event):
         """줌 드래그 시작"""
-        if not self.zoom_mode.get() or event.inaxes != self.ax:
+        ax2 = self.main_app.ax2 if hasattr(self.main_app, 'ax2') and self.main_app.ax2 is not None else None
+        if not self.zoom_mode.get() or event.inaxes not in [self.ax, ax2]:
             return
             
         self.zoom_active = True
@@ -140,11 +146,14 @@ class ZoomManager:
         if not self.zoom_stack:
             current_xlim = self.ax.get_xlim()
             current_ylim = self.ax.get_ylim()
-            self.zoom_stack.append((current_xlim, current_ylim))
+            ax2 = self.main_app.ax2 if hasattr(self.main_app, 'ax2') and self.main_app.ax2 is not None else None
+            ax2_ylim = ax2.get_ylim() if ax2 else None
+            self.zoom_stack.append((current_xlim, current_ylim, ax2_ylim))
 
     def _on_zoom_motion(self, event):
         """줌 드래그 중"""
-        if not self.zoom_mode.get() or not self.zoom_active or event.inaxes != self.ax:
+        ax2 = self.main_app.ax2 if hasattr(self.main_app, 'ax2') and self.main_app.ax2 is not None else None
+        if not self.zoom_mode.get() or not self.zoom_active or event.inaxes not in [self.ax, ax2]:
             return
             
         self.zoom_end_x = event.xdata
@@ -164,7 +173,7 @@ class ZoomManager:
             x = min(self.zoom_start_x, self.zoom_end_x)
             y = min(self.zoom_start_y, self.zoom_end_y)
             
-            self.zoom_rectangle = self.ax.add_patch(
+            self.zoom_rectangle = event.inaxes.add_patch(
                 plt.Rectangle((x, y), width, height, 
                             fill=False, edgecolor='red', linewidth=2, alpha=0.7)
             )
@@ -172,7 +181,8 @@ class ZoomManager:
 
     def _on_zoom_release(self, event):
         """줌 드래그 종료"""
-        if not self.zoom_mode.get() or not self.zoom_active or event.inaxes != self.ax:
+        ax2 = self.main_app.ax2 if hasattr(self.main_app, 'ax2') and self.main_app.ax2 is not None else None
+        if not self.zoom_mode.get() or not self.zoom_active or event.inaxes not in [self.ax, ax2]:
             return
             
         self.zoom_active = False
@@ -185,23 +195,33 @@ class ZoomManager:
             y_max = max(self.zoom_start_y, self.zoom_end_y)
             
             # 현재 축 범위 대비 최소 크기 체크 (1% 이상)
-            current_xlim = self.ax.get_xlim()
-            current_ylim = self.ax.get_ylim()
+            # 드래그가 발생한 축(event.inaxes)을 기준으로 범위 계산
+            current_xlim = event.inaxes.get_xlim()
+            current_ylim = event.inaxes.get_ylim()
+            
             x_range = current_xlim[1] - current_xlim[0]
             y_range = current_ylim[1] - current_ylim[0]
             
-            min_x_size = x_range * 0.01  # 1%
-            min_y_size = y_range * 0.01  # 1%
+            min_x_size = abs(x_range) * 0.01  # 1%
+            min_y_size = abs(y_range) * 0.01  # 1%
             
             if abs(x_max - x_min) > min_x_size and abs(y_max - y_min) > min_y_size:
                 # 현재 범위를 스택에 저장
-                self.zoom_stack.append((current_xlim, current_ylim))
+                ax2_ylim = ax2.get_ylim() if ax2 else None
+                self.zoom_stack.append((current_xlim, current_ylim, ax2_ylim))
                 
                 # 줌 적용
                 self.ax.set_xlim(x_min, x_max)
-                self.ax.set_ylim(y_min, y_max)
+                if event.inaxes == self.ax:
+                    self.ax.set_ylim(y_min, y_max)
+                elif event.inaxes == ax2:
+                    ax2.set_ylim(y_min, y_max)
+
                 self.plot_canvas.draw()
-                
+
+                # 줌 적용 후 plot_settings에 범위 자동 반영
+                self.zoom_features.sync_zoom_to_settings_silent()
+
                 print(f"줌 적용: X({x_min:.3f}, {x_max:.3f}), Y({y_min:.3f}, {y_max:.3f})")
             else:
                 print(f"줌 무시: 영역이 너무 작음 (최소 {min_x_size:.3f} x {min_y_size:.3f})")
@@ -222,11 +242,19 @@ class ZoomManager:
         """줌 리셋"""
         if self.zoom_stack:
             # 원본 범위로 복원
-            original_xlim, original_ylim = self.zoom_stack[0]
+            original_xlim, original_ylim, original_ax2_ylim = self.zoom_stack[0]
             self.ax.set_xlim(original_xlim)
             self.ax.set_ylim(original_ylim)
+
+            ax2 = self.main_app.ax2 if hasattr(self.main_app, 'ax2') and self.main_app.ax2 is not None else None
+            if ax2 and original_ax2_ylim:
+                ax2.set_ylim(original_ax2_ylim)
+
             self.plot_canvas.draw()
-            
+
+            # 줌 리셋 후 plot_settings에 범위 자동 반영
+            self.zoom_features.sync_zoom_to_settings_silent()
+
             # 줌 스택 초기화
             self.zoom_stack = []
             print("줌 리셋 완료")
@@ -238,13 +266,21 @@ class ZoomManager:
         if len(self.zoom_stack) > 1:
             # 마지막 줌 단계 제거
             self.zoom_stack.pop()
-            
+
             # 이전 범위로 복원
-            prev_xlim, prev_ylim = self.zoom_stack[-1]
+            prev_xlim, prev_ylim, prev_ax2_ylim = self.zoom_stack[-1]
             self.ax.set_xlim(prev_xlim)
             self.ax.set_ylim(prev_ylim)
+
+            ax2 = self.main_app.ax2 if hasattr(self.main_app, 'ax2') and self.main_app.ax2 is not None else None
+            if ax2 and prev_ax2_ylim:
+                ax2.set_ylim(prev_ax2_ylim)
+
             self.plot_canvas.draw()
-            
+
+            # 줌 아웃 후 plot_settings에 범위 자동 반영
+            self.zoom_features.sync_zoom_to_settings_silent()
+
             print(f"줌 아웃: X({prev_xlim[0]:.3f}, {prev_xlim[1]:.3f}), Y({prev_ylim[0]:.3f}, {prev_ylim[1]:.3f})")
         else:
             print("줌 아웃할 단계가 없습니다.")

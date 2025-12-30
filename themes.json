@@ -1,0 +1,139 @@
+{
+    "123": {
+        "use_double_y": true,
+        "left_y_columns": [
+            "asd1"
+        ],
+        "right_y_columns": [
+            "asd2"
+        ],
+        "left_axis_color": "#000000",
+        "right_axis_color": "#ff0000",
+        "left_ylabel": "asd1",
+        "right_ylabel": "asd2",
+        "left_ylim_min": 20.0,
+        "left_ylim_max": 1780.0,
+        "right_ylim_min": 0.00019999999999999998,
+        "right_ylim_max": 0.0178,
+        "x_ticks": 1.0,
+        "left_y_ticks": 1.0,
+        "right_y_ticks": 1.0,
+        "grid": false,
+        "title": "",
+        "xlabel": "",
+        "title_fontsize": 14,
+        "label_fontsize": 16,
+        "tick_fontsize": 12,
+        "xlim_min": 10.0,
+        "xlim_max": 170.0,
+        "is_timestamp": false,
+        "y_colors": {
+            "asd1": "#000000",
+            "asd2": "#ff0000"
+        },
+        "y_line_widths": {
+            "asd1": 2.0,
+            "asd2": 2.0
+        },
+        "y_line_styles": {
+            "asd1": "-",
+            "asd2": "-"
+        },
+        "y_markers": {
+            "asd1": "None",
+            "asd2": "None"
+        },
+        "y_marker_sizes": {
+            "asd1": 6,
+            "asd2": 6
+        },
+        "y_plot_types": {
+            "asd1": "line",
+            "asd2": "line"
+        },
+        "y_alphas": {
+            "asd1": 1.0,
+            "asd2": 1.0
+        },
+        "y_zorders": {
+            "asd1": 1,
+            "asd2": 2
+        },
+        "is_double_y_mode": true
+    },
+    "[Single Y] asd": {
+        "plot_mode": "errorbar",
+        "data_mode": "repeated",
+        "color": "#ff0000",
+        "ecolor": "#2E86AB",
+        "capsize": 5.0,
+        "capthick": 2.0,
+        "line_width": 2.0,
+        "marker": "o",
+        "marker_size": 8.0,
+        "show_grid": false,
+        "xlim_min": 10.0,
+        "xlim_max": 170.0,
+        "ylim_min": -60.70000000000002,
+        "ylim_max": 1867.7,
+        "x_ticks": 1.0,
+        "y_ticks": 1.0,
+        "title": "Excel Plotter",
+        "xlabel": "",
+        "ylabel": "",
+        "legend_loc": "best",
+        "title_fontsize": 14,
+        "xlabel_fontsize": 12,
+        "ylabel_fontsize": 12,
+        "x_tick_fontsize": 12,
+        "y_tick_fontsize": 12,
+        "y_columns": [
+            "asd1",
+            "Column_2",
+            "Column_3",
+            "Column_4",
+            "Column_5",
+            "Column_6",
+            "Column_7",
+            "Column_8"
+        ]
+    },
+    "[Error Bar] zxc": {
+        "plot_mode": "errorbar",
+        "data_mode": "repeated",
+        "color": "#ff0000",
+        "ecolor": "#000000",
+        "capsize": 5.0,
+        "capthick": 2.0,
+        "line_width": 2.0,
+        "marker": "o",
+        "marker_size": 8.0,
+        "show_grid": false,
+        "xlim_min": 10.0,
+        "xlim_max": 170.0,
+        "ylim_min": -60.70000000000002,
+        "ylim_max": 1867.7,
+        "x_ticks": 1.0,
+        "y_ticks": 1.0,
+        "title": "Excel Plotter",
+        "xlabel": "",
+        "ylabel": "",
+        "legend_loc": "best",
+        "title_fontsize": 14,
+        "xlabel_fontsize": 12,
+        "ylabel_fontsize": 12,
+        "x_tick_fontsize": 12,
+        "y_tick_fontsize": 12,
+        "y_columns": [
+            "asd1",
+            "Column_2",
+            "Column_3",
+            "Column_4",
+            "Column_5",
+            "Column_6",
+            "Column_7",
+            "Column_8"
+        ],
+        "is_error_bar_mode": true
+    }
+}

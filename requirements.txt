@@ -1,9 +1,27 @@
-matplotlib>=3.7
-SciencePlots>=2.1
+# Excel Plotter Application Dependencies
+# Install: pip install -r requirements.txt
+
+# Data manipulation
 pandas>=2.0
 openpyxl>=3.1
 xlrd>=2.0
+
+# Numerical computing
 numpy>=1.24
+
+# Plotting
+matplotlib>=3.7
+SciencePlots>=2.1
+
+# Scientific computing (curve fitting, signal processing)
+scipy>=1.10
+
+# Image processing
 Pillow>=9.0
+
+# Excel integration (Windows only)
+xlwings>=0.30
 pywin32>=306
 
+# Statistical modeling (for logistic regression)
+statsmodels>=0.14
